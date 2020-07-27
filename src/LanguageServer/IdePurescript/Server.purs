@@ -11,6 +11,7 @@ import Data.String.Regex.Flags (noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
 import Data.String.Utils (lines)
 import Data.Time.Duration (Milliseconds(..))
+import Debug.Trace (spy)
 import Effect.Aff (Aff, attempt, delay, makeAff)
 import Effect.Class (class MonadEffect, liftEffect)
 import Foreign (Foreign)
@@ -53,8 +54,10 @@ startServer' settings root cb logCb = do
       pure (Regex.split (unsafeRegex """[\r\n\s]+""" noFlags) sourcesString)
     Nothing -> do
       liftEffect $ logCb Info "Using sources from psc-package/spago packages (PURS_IDE_SOURCES not set)"
-      pscpGlob <- getPackagerPaths Config.addPscPackageSources "psc-package" settings root
-      spagoGlob <- getPackagerPaths Config.addSpagoSources "spago" settings root
+      pscpGlob <- getPackagerPaths Config.addPscPackageSources "psc-package" settings root logCb
+      liftEffect $ logCb Info $ "pscpGlob " <> show pscpGlob
+      spagoGlob <- getPackagerPaths Config.addSpagoSources "spago" (spy "settings: " settings) root logCb
+      liftEffect $ logCb Info $ "spagoGlob " <> show spagoGlob
       pure (pscpGlob <> spagoGlob)
   P.startServer'
     { exe
@@ -73,8 +76,12 @@ startServer' settings root cb logCb = do
       _ -> []
     exe = Config.pursExe settings
 
-getPackagerPaths :: ConfigFn Boolean -> String -> Foreign -> String -> Aff (Array String)
-getPackagerPaths enabled binName settings root = if not $ enabled settings then pure [] else do
+getPackagerPaths :: ConfigFn Boolean -> String -> Foreign -> String -> Notify -> Aff (Array String)
+getPackagerPaths enabled binName settings root logCb = if not $ enabled settings then do
+  liftEffect $ logCb Info $ binName <> " not enabled in getPackagerPaths"
+  pure []
+  else do
+  liftEffect $ logCb Info $ binName <> " IS enabled in getPackagerPaths"
   pathVar <- liftEffect $ getPathVar (Config.addNpmPath settings) root
   serverBins <- findBins pathVar binName
   case head serverBins of
